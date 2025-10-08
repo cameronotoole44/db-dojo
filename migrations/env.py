@@ -1,48 +1,37 @@
-from logging.config import fileConfig
-import os
+import subprocess
 from pathlib import Path
 from dotenv import load_dotenv
-from sqlalchemy import engine_from_config, pool
-from alembic import context
+import typer
+from rich import print
 
-ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
+ENV_PATH = Path(__file__).resolve().parent / ".env"
 load_dotenv(dotenv_path=ENV_PATH)
 
-config = context.config
+app = typer.Typer(no_args_is_help=True)
 
-env_url = os.getenv("DATABASE_URL")
-if env_url:
-    config.set_main_option("sqlalchemy.url", env_url)
+@app.command()
+def up():
+    subprocess.run(["docker", "compose", "up", "-d"], check=True)
 
-if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+@app.command()
+def migrate():
+    subprocess.run(["alembic", "upgrade", "head"], check=True)
 
-import models
-target_metadata = models.all_metadata()
+@app.command()
+def seed():
+    subprocess.run(["python", "tools/seed.py"], check=True)
 
-def run_migrations_offline():
-    url = config.get_main_option("sqlalchemy.url")
-    context.configure(
-        url=url,
-        target_metadata=target_metadata,
-        literal_binds=True,
-        dialect_opts={"paramstyle": "named"},
-    )
-    with context.begin_transaction():
-        context.run_migrations()
+@app.command()
+def reset_db():
+    print("[yellow]Resetting containers and volumes…[/yellow]")
+    subprocess.run(["docker", "compose", "down", "-v"], check=True)
+    subprocess.run(["docker", "compose", "up", "-d"], check=True)
+    subprocess.run(["alembic", "upgrade", "head"], check=True)
 
-def run_migrations_online():
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
-    with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
-        with context.begin_transaction():
-            context.run_migrations()
+@app.command()
+def run_api():
+    subprocess.run(["uvicorn", "app.main:app", "--reload"], check=True)
 
-if context.is_offline_mode():
-    run_migrations_offline()
-else:
-    run_migrations_online()
+if __name__ == "__main__":
+    app()
+
